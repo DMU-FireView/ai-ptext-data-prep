@@ -239,10 +239,14 @@ def write_duplicates(path, details):
 def main():
     parser = argparse.ArgumentParser(description="Reviews 시트의 마지막 공통 header 이후 raw review 품질을 검사합니다.")
     parser.add_argument("excel_path", type=Path, help="입력 Excel 경로 (원본은 읽기 전용)")
+    parser.add_argument("--report", type=Path, default=Path("reports/review_quality_summary.md"),
+                        help="요약 보고서 경로 (상대경로는 PROJECT_ROOT 기준, 절대경로 허용)")
+    parser.add_argument("--duplicates", type=Path, default=Path("outputs/review_duplicates.xlsx"),
+                        help="중복 상세 Excel 경로 (상대경로는 PROJECT_ROOT 기준, 절대경로 허용)")
     args = parser.parse_args()
     source = args.excel_path.expanduser().resolve()
-    report_path = PROJECT_ROOT / "reports" / "review_quality_summary.md"
-    duplicates_path = PROJECT_ROOT / "outputs" / "review_duplicates.xlsx"
+    report_path = (PROJECT_ROOT / args.report.expanduser()).resolve()
+    duplicates_path = (PROJECT_ROOT / args.duplicates.expanduser()).resolve()
     try:
         if source in (report_path.resolve(), duplicates_path.resolve()):
             raise ValueError("입력 파일과 결과 저장 경로가 같습니다. 원본 보호를 위해 중단합니다.")
