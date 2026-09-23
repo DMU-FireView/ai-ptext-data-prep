@@ -155,9 +155,11 @@ def main():
     parser.add_argument("excel_path", type=Path, nargs="?",
                         default=PROJECT_ROOT / "outputs" / "ptext_candidates.xlsx",
                         help="입력 후보 Excel (기본: outputs/ptext_candidates.xlsx)")
+    parser.add_argument("--output", type=Path, default=Path("outputs/ptext_labeling_workbook.xlsx"),
+                        help="라벨링 workbook 경로 (상대경로는 PROJECT_ROOT 기준, 절대경로 허용)")
     args = parser.parse_args()
     source = args.excel_path.expanduser().resolve()
-    output = PROJECT_ROOT / "outputs" / "ptext_labeling_workbook.xlsx"
+    output = (PROJECT_ROOT / args.output.expanduser()).resolve()
     workbook = None
     temporary_path = None
     try:

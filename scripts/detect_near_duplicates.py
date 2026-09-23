@@ -204,13 +204,19 @@ def main():
     parser.add_argument("excel_path", type=Path, help="입력 Excel 경로 (읽기 전용)")
     parser.add_argument("--threshold", type=threshold_value, default=0.85, help="0 초과 1 이하 (기본: 0.85)")
     parser.add_argument("--min-length", type=minimum_length, default=15, help="계산용 content 최소 문자 수 (기본: 15)")
+    parser.add_argument("--output", type=Path, default=Path("outputs/near_duplicate_pairs.xlsx"),
+                        help="후보 Excel 경로 (상대경로는 PROJECT_ROOT 기준, 절대경로 허용)")
+    parser.add_argument("--report", type=Path, default=Path("reports/near_duplicate_summary.md"),
+                        help="요약 보고서 경로 (상대경로는 PROJECT_ROOT 기준, 절대경로 허용)")
     args = parser.parse_args()
     source = args.excel_path.expanduser().resolve()
-    output = PROJECT_ROOT / "outputs" / "near_duplicate_pairs.xlsx"
-    report_path = PROJECT_ROOT / "reports" / "near_duplicate_summary.md"
+    output = (PROJECT_ROOT / args.output.expanduser()).resolve()
+    report_path = (PROJECT_ROOT / args.report.expanduser()).resolve()
     try:
         if source in (output.resolve(), report_path.resolve()):
             raise ValueError("입력 파일과 결과 경로가 같습니다. 원본 보호를 위해 중단합니다.")
+        if output == report_path:
+            raise ValueError("output과 report 경로가 같습니다. 서로 다른 경로를 지정해주세요.")
         frame, header_row, header_count, skipped = read_reviews(source)
         candidates, texts, excluded = prepare_candidates(frame, args.min_length)
         matrix = None

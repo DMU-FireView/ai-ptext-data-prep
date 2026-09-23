@@ -274,16 +274,26 @@ def main():
     parser = argparse.ArgumentParser(description="P_text 학습 준비를 위한 사람 검토용 패턴 후보 추출")
     parser.add_argument("excel_path", type=Path, help="읽기 전용 입력 Excel")
     parser.add_argument("--brand-keyword", action="append", default=[], help="HARD_NEGATIVE 검토용 브랜드/제품명 원문 키워드 (반복 지정 가능)")
+    parser.add_argument("--near-duplicates", type=Path, default=Path("outputs/near_duplicate_pairs.xlsx"),
+                        help="읽기 전용 near-duplicate Excel 경로 (상대경로는 PROJECT_ROOT 기준, 절대경로 허용)")
+    parser.add_argument("--output", type=Path, default=Path("outputs/ptext_candidates.xlsx"),
+                        help="후보 Excel 경로 (상대경로는 PROJECT_ROOT 기준, 절대경로 허용)")
+    parser.add_argument("--report", type=Path, default=Path("reports/ptext_candidate_summary.md"),
+                        help="요약 보고서 경로 (상대경로는 PROJECT_ROOT 기준, 절대경로 허용)")
     args = parser.parse_args()
     source = args.excel_path.expanduser().resolve()
-    output = PROJECT_ROOT / "outputs" / "ptext_candidates.xlsx"
-    report_path = PROJECT_ROOT / "reports" / "ptext_candidate_summary.md"
-    near_path = PROJECT_ROOT / "outputs" / "near_duplicate_pairs.xlsx"
+    output = (PROJECT_ROOT / args.output.expanduser()).resolve()
+    report_path = (PROJECT_ROOT / args.report.expanduser()).resolve()
+    near_path = (PROJECT_ROOT / args.near_duplicates.expanduser()).resolve()
     try:
         if any(is_blank(keyword) for keyword in args.brand_keyword):
             raise ValueError("brand-keyword에는 비어 있지 않은 브랜드/제품명을 입력해주세요.")
         if source in (output.resolve(), report_path.resolve()):
             raise ValueError("입력과 출력 경로가 같습니다. 원본 보호를 위해 중단합니다.")
+        if near_path in (output, report_path):
+            raise ValueError("near-duplicate 입력과 출력 경로가 같습니다. 원본 보호를 위해 중단합니다.")
+        if output == report_path:
+            raise ValueError("output과 report 경로가 같습니다. 서로 다른 경로를 지정해주세요.")
         frame, header_row, header_count, skipped = read_reviews(source)
         repetition = repetition_features(frame)
         near, near_status = near_duplicate_features(near_path, frame)
