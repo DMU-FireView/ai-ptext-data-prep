@@ -14,6 +14,7 @@ from inspect_reviews import PROJECT_ROOT, is_blank, markdown_value, read_reviews
 
 
 REASONS = ("REPETITION", "PRODUCT_COPY", "STRUCTURED_INFO", "PROMOTIONAL_CTA", "HARD_NEGATIVE")
+REASONS += ("PRODUCT_DESCRIPTION_REPLACEMENT", "NO_USE_ASSERTIVE_RECOMMENDATION", "DESCRIPTION_HARD_NEGATIVE")
 REPETITION_MIN_LENGTH = 15
 FIELDS = ("platform", "product_id", "review_id", "content", "rating")
 SPEC = r"용량|규격|구성|소재|사이즈|색상|제조국|사용\s*방법|성분|원산지|중량|재질"
@@ -53,6 +54,63 @@ EXPERIENCE = (
     ("개인 상황", r"(?:저는|제가|우리\s*아이|제\s*(?:피부|발|체형))[^.\n!?]{0,30}(?:민감|건성|지성|알레르기|발볼|출근|육아)"),
     ("장단점 경험", r"(?:아쉬웠|아쉬워요|불편했|불편해요|편했|편해요|따가웠|따가워요|가려웠|가려워요|잘\s*맞았|향이\s*강했|보습이\s*좋았)"),
 )
+
+
+# Independent signals for the new reasons; existing rule tuples stay unchanged.
+DESCRIPTION_SIGNALS = (
+    ("성분 설명", r"(?:핵심|주요)\s*성분|함유|순도\s*\d+(?:\.\d+)?\s*%|저분자|비건|성분을\s*중심으로|(?:성분|콜라겐|비타민|추출물)(?:을|를)\s*담아"),
+    ("효능 설명", r"피부(?:를|에)?\s*진정|(?:보습|탄력감?)(?:을|를)\s*부여|피부결을\s*정돈|브라이트닝|(?:잡티|피부톤|흔적)(?:을|를)?\s*(?:관리|케어)|에\s*초점을\s*맞춘|(?:건조함|탄력\s*저하)(?:을|를)\s*(?:함께\s*)?관리"),
+    ("대상 설명", r"하고\s*싶은\s*분|(?:분들?|사용자|피부|아이|가족)(?:을|를)\s*위한|에\s*적합|에게\s*추천"),
+    ("제품 소개 서술", r"(?:제품|마스크(?:팩)?|크림|세럼|로션|세제|샴푸|식품|도구|기기)(?:입니다|으로\s*설계|로\s*설계)"),
+)
+STRONG_EXPERIENCE = tuple(
+    # Do not turn "아직 안 써봤어요" into affirmative direct-use evidence.
+    (name, r"(?<!안 )(?<!못 )(?<![가-힣])" + pattern if name == "직접 사용 경험" else pattern)
+    for name, pattern in EXPERIENCE
+    if name in ("직접 사용 경험", "사용 후 관찰", "기간을 둔 사용", "장단점 경험")
+) + (
+    ("실제 사용 관찰", r"(?:세탁|착용|사용|발라|먹어|신어)(?:해|해\s*보|하|했|한|보)?\s*(?:니|니까|는데|후)[^.\n!?]{0,30}(?:줄었|늘었|남았|없었|생겼|빠졌|느꼈|달라졌|건조|촉촉|따가|편안|불편)"),
+    ("직접 사용 완료", r"(?<!안 )(?<!못 )(?<![가-힣])(?:사용해|써)\s*(?:봤습니다|보았습니다)"),
+    ("현재 사용 중", r"사용\s*(?:중(?:입니다|인|인데)?|하고\s*있(?:습니다|어요))"),
+    ("지속 사용 기간", r"(?:일주일|\d+\s*(?:일|주|개월))\s*째\s*사용"),
+    ("첫 사용 경험", r"첫\s*사용(?:감|\s*후)"),
+    ("사용 후 체감", r"(?:사용|세정|샴푸)\s*(?:후(?:에는)?|하고\s*나서)[^.\n!?]{0,45}(?:개운|시원|느낌|느껴|잔여감|답답하지|뻣뻣하지|사라졌|마무리)"),
+)
+NO_USE = re.compile(
+    r"(?:아직\s*)?(?:(?:써|사용해|먹어|입어|신어)\s*보(?:지(?:는)?|진)\s*(?:못했|않았)"
+    r"|안\s*(?:써|사용해|먹어|입어|신어)\s*봤"
+    r"|사용(?:은|을)?\s*안\s*해\s*봤)"
+    r"|아직\s*(?:사용|개봉)\s*전"
+)
+NO_USE_ASSERTIONS = (
+    ("명시적 추천", r"(?<![가-힣])추천(?:합니다|해요|드려요|드립니다)(?![가-힣])"),
+    ("미래 효용 주장", r"(?:유용할|효과가\s*있을|좋을|도움이\s*될)\s*(?:것|거)\s*같(?:아|습|다|네)"),
+)
+
+
+def additional_pattern_features(text, ctas):
+    """Return review hints only; never infer NORMAL/SUSPICIOUS labels."""
+    found = {}
+    descriptions = []
+    for name, pattern in DESCRIPTION_SIGNALS:
+        match = re.search(pattern, text)
+        if match:
+            descriptions.append(f"{name}={match.group(0)[:45]}")
+    strong = [name for name, pattern in STRONG_EXPERIENCE if re.search(pattern, text)]
+    if len(descriptions) >= 2 and not strong:
+        found["PRODUCT_DESCRIPTION_REPLACEMENT"] = descriptions + ["강한 직접 경험 신호 없음"]
+    if descriptions and strong:
+        found["DESCRIPTION_HARD_NEGATIVE"] = descriptions + ["직접 경험=" + ",".join(strong)]
+    no_use = NO_USE.search(text)
+    if no_use:
+        assertions = [f"직접 CTA={name}" for name in ctas]
+        for name, pattern in NO_USE_ASSERTIONS:
+            match = re.search(pattern, text)
+            if match:
+                assertions.append(f"{name}={match.group(0)[:45]}")
+        if assertions:
+            found["NO_USE_ASSERTIVE_RECOMMENDATION"] = [f"미사용={no_use.group(0)}"] + assertions
+    return found
 
 
 def repetition_features(frame):
@@ -187,6 +245,7 @@ def pattern_features(content, brand_keywords):
     experiences = [name for name, pattern in EXPERIENCE if re.search(pattern, text)]
     if exposure and experiences:
         found["HARD_NEGATIVE"] = exposure + experiences
+    found.update(additional_pattern_features(text, ctas))
     return found
 
 
@@ -262,6 +321,10 @@ def build_report(source, frame, header_row, header_count, skipped, total, multip
         "- PROMOTIONAL_CTA: 꼭 사세요/강추합니다/무조건 추천/구매하세요/쟁이세요/꼭 써보세요/추천드립니다 등의 직접 표현. 인용·전언·일부 부정 표현은 제외합니다. 단순 추천 단어, 추천받은 경험, 재구매 의사, 추천할 만하다는 표현은 근거로 쓰지 않습니다.",
         "- HARD_NEGATIVE: 추천·SNS·광고를 통한 구매 또는 지정 브랜드/제품명 언급과, 직접 사용·만족·마음에 듦·디자인/재질/사용감/성능 평가·사용 기간·구체적 배송·개인 상황·장단점 경험 중 하나 이상이 함께 있어야 합니다. 구매 경로/브랜드 언급 단독이나 경험 표현 단독으로는 후보가 되지 않습니다.",
         "- 브랜드/제품명은 임의 추측하지 않습니다. 필요한 경우 --brand-keyword를 반복 지정하면 해당 원문 문자열의 언급을 확인합니다. 지정하지 않으면 구매 경로 표현만 사용합니다.",
+        "- PRODUCT_DESCRIPTION_REPLACEMENT: 성분·효능·대상·제품 소개 서술 중 서로 다른 설명 신호가 2개 이상이고 강한 직접 경험 신호가 없는 검토 후보입니다. 자동 SUSPICIOUS 판정이 아닙니다.",
+        "- NO_USE_ASSERTIVE_RECOMMENDATION: 미사용 명시와 기존 직접 CTA/명시적 추천/미래 효용 주장 중 하나가 결합한 후보입니다. 미사용 표현 단독으로는 탐지하지 않습니다.",
+        "- DESCRIPTION_HARD_NEGATIVE: 설명형 언어가 있지만 직접 사용·사용 후 관찰·사용 기간·장단점 등 제품 자체의 구체적 사용 경험 근거도 있는 NORMAL hard-negative 검토 후보입니다. 만족합니다 같은 표현만으로 경험이 충분하다고 보지 않으며 NORMAL로 자동 확정하지 않습니다.",
+        "- 신규 reason은 브랜드/광고/체험단/CTA/구조/별점/길이만으로 위험을 확정하지 않습니다. cross-review REPETITION은 기존 검토 힌트로 유지하되 P_text positive 근거로 사용하지 않습니다.",
         "- 한 리뷰는 여러 candidate_reasons를 가질 수 있으므로 유형별 합계는 후보 리뷰 수보다 클 수 있습니다. HARD_NEGATIVE도 최종 정상 라벨이 아닙니다.",
         "- 규칙은 보수적인 검토 시작점이며 문맥·부정·인용을 완전히 해석하지 못합니다. matched_features를 보고 사람이 판단해야 합니다.",
         "- content와 식별자 원본 값/타입을 유지합니다. 탐지용 문자열만 별도로 만들며 식별자를 강제로 문자열화하지 않습니다.",
